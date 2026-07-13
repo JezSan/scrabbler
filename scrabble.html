@@ -56,9 +56,9 @@
   }
   .tab {
     flex: 1;
-    padding: 10px 8px;
+    padding: 10px 4px;
     text-align: center;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     border-radius: 10px;
     cursor: pointer;
@@ -360,6 +360,110 @@
     border-radius: 4px;
     font-size: 11px;
   }
+
+  /* Score keeper */
+  .name-input input { text-transform: none; letter-spacing: 0; }
+  .sg-board { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sg-card {
+    flex: 1 1 90px;
+    min-width: 90px;
+    background: var(--card);
+    border-radius: 12px;
+    padding: 10px 6px 8px;
+    text-align: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border: 2px solid transparent;
+    position: relative;
+  }
+  .sg-card.leader { border-color: var(--accent); background: #d1fae5; }
+  .sg-card .sg-name {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0 12px;
+  }
+  .sg-card .sg-total { font-size: 26px; font-weight: 800; color: var(--accent); }
+  .sg-card .sg-remove {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 16px;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    padding: 2px 4px;
+    line-height: 1;
+  }
+  .sg-table-wrap {
+    overflow-x: auto;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    background: var(--card);
+  }
+  .sg-table { width: 100%; border-collapse: collapse; }
+  .sg-table th {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .sg-table th, .sg-table td {
+    padding: 6px 4px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .sg-table tfoot td { border-bottom: none; font-weight: 800; font-size: 16px; color: var(--accent); }
+  .sg-table .sg-rd { width: 34px; font-size: 12px; color: var(--muted); font-weight: 700; }
+  .sg-table .sg-del { width: 28px; }
+  .sg-table .sg-del button {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 15px;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    padding: 4px;
+  }
+  .sg-table input {
+    width: 100%;
+    min-width: 48px;
+    max-width: 72px;
+    padding: 8px 2px;
+    text-align: center;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    background: var(--bg);
+    outline: none;
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .sg-table input:focus { border-color: var(--accent); }
+  .sg-table input::-webkit-outer-spin-button,
+  .sg-table input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .sg-actions { display: flex; gap: 8px; margin-top: 14px; }
+  .sg-btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    background: var(--accent);
+    color: white;
+  }
+  .sg-btn.secondary { background: var(--card); color: var(--danger); border: 2px solid var(--border); }
 </style>
 </head>
 <body>
@@ -372,6 +476,7 @@
     <button class="tab" onclick="switchTab('two')">2-Letter</button>
     <button class="tab" onclick="switchTab('three')">3-Letter</button>
     <button class="tab" onclick="switchTab('find')">Find</button>
+    <button class="tab" onclick="switchTab('score')">Score</button>
   </div>
 
   <!-- CHECK PANEL -->
@@ -426,6 +531,18 @@
       </div>
     </div>
     <div class="word-grid" id="gridFind" style="margin-top:14px"></div>
+  </div>
+
+  <!-- SCORE PANEL -->
+  <div id="panel-score" class="panel">
+    <div class="search-box name-input">
+      <label>Add Player</label>
+      <div class="input-row">
+        <input type="text" id="playerInput" placeholder="Player name" maxlength="20" autocomplete="off" spellcheck="false">
+        <button onclick="addPlayer()">Add</button>
+      </div>
+    </div>
+    <div id="scoreArea"></div>
   </div>
 </div>
 
@@ -498,7 +615,7 @@ function fullCheck(word) {
 // Tab switching
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t,i) => {
-    const names = ['check','two','three','find'];
+    const names = ['check','two','three','find','score'];
     t.classList.toggle('active', names[i] === name);
   });
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -656,6 +773,144 @@ function findWords() {
   }
   renderGrid(matches, 'gridFind');
 }
+
+
+// ---- Score keeper ----
+const SG_KEY = 'tashyScoreKeeper';
+let SG = { players: [], rounds: [] };
+try {
+  const saved = JSON.parse(localStorage.getItem(SG_KEY));
+  if (saved && Array.isArray(saved.players) && Array.isArray(saved.rounds)) SG = saved;
+} catch (e) {}
+
+function sgSave() { try { localStorage.setItem(SG_KEY, JSON.stringify(SG)); } catch (e) {} }
+function sgEsc(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// Column headers: initials from each name, de-duped (JS, JS -> JS, JS2)
+function sgInitials() {
+  const base = SG.players.map(p => {
+    const parts = p.trim().split(/\s+/);
+    const ini = parts.length > 1 ? parts.map(x => x[0]).join('') : p.slice(0, 2);
+    return ini.toUpperCase().slice(0, 3);
+  });
+  const seen = {};
+  return base.map(b => { seen[b] = (seen[b] || 0) + 1; return seen[b] > 1 ? b + seen[b] : b; });
+}
+
+function sgTotals() {
+  return SG.players.map((_, i) =>
+    SG.rounds.reduce((sum, r) => sum + (typeof r[i] === 'number' ? r[i] : 0), 0));
+}
+
+function addPlayer() {
+  const inp = document.getElementById('playerInput');
+  const name = inp.value.trim().slice(0, 20);
+  if (!name) return;
+  SG.players.push(name);
+  SG.rounds.forEach(r => r.push(null));
+  inp.value = '';
+  sgSave();
+  renderScore();
+  inp.focus();
+}
+
+function removePlayer(i) {
+  const hasScores = SG.rounds.some(r => typeof r[i] === 'number');
+  if (hasScores && !confirm('Remove ' + SG.players[i] + ' and their scores?')) return;
+  SG.players.splice(i, 1);
+  SG.rounds.forEach(r => r.splice(i, 1));
+  if (!SG.players.length) SG.rounds = [];
+  sgSave();
+  renderScore();
+}
+
+function addRound() {
+  SG.rounds.push(Array(SG.players.length).fill(null));
+  sgSave();
+  renderScore();
+  const first = document.querySelector('#sgRows tr:last-child input');
+  if (first) first.focus();
+}
+
+function removeRound(r) {
+  const hasScores = SG.rounds[r].some(v => typeof v === 'number');
+  if (hasScores && !confirm('Delete round ' + (r + 1) + '?')) return;
+  SG.rounds.splice(r, 1);
+  sgSave();
+  renderScore();
+}
+
+function sgInput(r, c, val) {
+  const n = parseInt(val, 10);
+  SG.rounds[r][c] = isNaN(n) ? null : n;
+  sgSave();
+  sgUpdateTotals();
+}
+
+function sgUpdateTotals() {
+  const totals = sgTotals();
+  const played = SG.rounds.length > 0;
+  const max = Math.max.apply(null, totals);
+  totals.forEach((t, i) => {
+    const cell = document.getElementById('sgColTotal' + i);
+    if (cell) cell.textContent = t;
+    const card = document.getElementById('sgCard' + i);
+    if (card) {
+      card.querySelector('.sg-total').textContent = t;
+      card.classList.toggle('leader', played && t === max);
+    }
+  });
+}
+
+function newGame() {
+  if (SG.rounds.length && !confirm('Start a new game? All round scores will be cleared.')) return;
+  SG.rounds = [];
+  sgSave();
+  renderScore();
+}
+
+function renderScore() {
+  const area = document.getElementById('scoreArea');
+  if (!SG.players.length) {
+    area.innerHTML = '<div class="empty-state">Add two or more players to start keeping score.</div>';
+    return;
+  }
+  const inis = sgInitials();
+  const totals = sgTotals();
+  const played = SG.rounds.length > 0;
+  const max = Math.max.apply(null, totals);
+
+  const cards = SG.players.map((p, i) =>
+    `<div class="sg-card ${played && totals[i] === max ? 'leader' : ''}" id="sgCard${i}">
+      <button class="sg-remove" onclick="removePlayer(${i})" title="Remove player">&times;</button>
+      <div class="sg-name">${sgEsc(p)}</div>
+      <div class="sg-total">${totals[i]}</div>
+    </div>`).join('');
+
+  const head = `<tr><th class="sg-rd">Rd</th>${SG.players.map((p, i) =>
+    `<th title="${sgEsc(p)}">${sgEsc(inis[i])}</th>`).join('')}<th class="sg-del"></th></tr>`;
+
+  const rows = SG.rounds.map((r, ri) =>
+    `<tr><td class="sg-rd">${ri + 1}</td>${r.map((v, ci) =>
+      `<td><input type="number" inputmode="numeric" value="${v === null ? '' : v}" oninput="sgInput(${ri},${ci},this.value)"></td>`).join('')}
+    <td class="sg-del"><button onclick="removeRound(${ri})" title="Delete round">&times;</button></td></tr>`).join('');
+
+  const foot = `<tr><td class="sg-rd">Tot</td>${totals.map((t, i) =>
+    `<td id="sgColTotal${i}">${t}</td>`).join('')}<td class="sg-del"></td></tr>`;
+
+  area.innerHTML =
+    `<div class="sg-board">${cards}</div>
+    <div class="sg-table-wrap"><table class="sg-table">
+      <thead>${head}</thead><tbody id="sgRows">${rows}</tbody><tfoot>${foot}</tfoot>
+    </table></div>
+    <div class="sg-actions">
+      <button class="sg-btn" onclick="addRound()">+ Add Round</button>
+      <button class="sg-btn secondary" onclick="newGame()">New Game</button>
+    </div>`;
+}
+
+document.getElementById('playerInput').addEventListener('keyup', e => { if (e.key === 'Enter') addPlayer(); });
+renderScore();
 
 
 // ---- Full dictionary data ----
