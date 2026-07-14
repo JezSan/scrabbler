@@ -304,6 +304,23 @@
     color: var(--muted);
     margin-bottom: 12px;
   }
+  .popup .meaning {
+    margin-top: 12px;
+    font-size: 14px;
+    text-align: left;
+    line-height: 1.45;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .popup .meaning .meaning-def { margin-bottom: 8px; }
+  .popup .meaning .meaning-def em { color: var(--muted); margin-right: 4px; }
+  .popup .meaning .meaning-note { color: var(--muted); font-size: 13px; }
+  .result strong.word-link {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+  }
   .popup .close-btn {
     margin-top: 16px;
     padding: 10px 32px;
@@ -571,6 +588,7 @@
     <div class="big-word" id="popupWord"></div>
     <div class="score" id="popupScore"></div>
     <div id="popupDicts"></div>
+    <div class="meaning" id="popupMeaning"></div>
     <button class="close-btn" onclick="closePopup()">Close</button>
   </div>
 </div>
@@ -665,7 +683,7 @@ function checkWord() {
     } else {
       tags = '<span class="badge us">&#10003; US (NWL) only</span>';
     }
-    result.innerHTML = `<strong>${input}</strong> is valid! &middot; ${score(input)} pts<div class="dict-tags">${tags}</div>`;
+    result.innerHTML = `<strong class="word-link" onclick="showPopup('${input}','${dict}')">${input}</strong> is valid! &middot; ${score(input)} pts<div class="dict-tags">${tags}</div><div style="margin-top:6px;font-size:11px;font-weight:400;color:var(--muted)">Tap the word for its meaning</div>`;
   } else {
     result.className = 'result invalid';
     result.innerHTML = `<strong>${input}</strong> is not a valid Scrabble word in US or UK dictionaries.`;
@@ -758,6 +776,37 @@ function applyFilter(prefix, len, wordsObj) {
   renderGrid(filtered, 'grid' + len);
 }
 
+// Word meanings, fetched on demand (needs internet; cached per session)
+const MEANING_CACHE = {};
+let meaningReq = 0;
+function loadMeaning(word) {
+  const el = document.getElementById('popupMeaning');
+  const id = ++meaningReq;
+  if (MEANING_CACHE[word]) { el.innerHTML = MEANING_CACHE[word]; return; }
+  el.innerHTML = '<span class="meaning-note">Looking up meaning&hellip;</span>';
+  fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + word.toLowerCase())
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(data => {
+      const defs = [];
+      for (const entry of data) {
+        for (const m of entry.meanings || []) {
+          for (const d of m.definitions || []) {
+            defs.push(`<div class="meaning-def"><em>${sgEsc(m.partOfSpeech || '')}</em>${sgEsc(d.definition || '')}</div>`);
+            if (defs.length >= 3) break;
+          }
+          if (defs.length >= 3) break;
+        }
+        if (defs.length >= 3) break;
+      }
+      const html = defs.length ? defs.join('') : '<span class="meaning-note">No definition found.</span>';
+      MEANING_CACHE[word] = html;
+      if (id === meaningReq) el.innerHTML = html;
+    })
+    .catch(() => {
+      if (id === meaningReq) el.innerHTML = '<span class="meaning-note">No definition available &mdash; you may be offline, or this word isn\'t in the meanings dictionary.</span>';
+    });
+}
+
 // Popup
 function showPopup(word, dict, pts) {
   const pw = document.getElementById('popupWord');
@@ -774,6 +823,7 @@ function showPopup(word, dict, pts) {
     tags = '<span class="badge uk">UK (SOWPODS) Only</span>';
   }
   document.getElementById('popupDicts').innerHTML = tags;
+  loadMeaning(word);
   document.getElementById('popup').classList.add('show');
 }
 function closePopup(e) {
