@@ -471,6 +471,28 @@
   .sg-table input:focus { border-color: var(--accent); }
   .sg-table input::-webkit-outer-spin-button,
   .sg-table input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .sg-table .sg-end-neg { color: var(--danger); font-weight: 700; }
+  .sg-table .sg-end-pos { color: var(--accent); font-weight: 700; }
+  .sg-endrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .sg-endrow input {
+    width: 90px;
+    padding: 8px;
+    text-align: center;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    background: var(--bg);
+    outline: none;
+  }
+  .sg-endrow input:focus { border-color: var(--accent); }
   .sg-actions { display: flex; gap: 8px; margin-top: 14px; }
   .sg-btn {
     flex: 1;
@@ -960,7 +982,8 @@ function sgInitials() {
 
 function sgTotals() {
   return SG.players.map((_, i) =>
-    SG.rounds.reduce((sum, r) => sum + (typeof r[i] === 'number' ? r[i] : 0), 0));
+    SG.rounds.reduce((sum, r) => sum + (typeof r[i] === 'number' ? r[i] : 0), 0) +
+    (SG.endRound && typeof SG.endRound[i] === 'number' ? SG.endRound[i] : 0));
 }
 
 function addPlayer() {
@@ -980,7 +1003,8 @@ function removePlayer(i) {
   if (hasScores && !confirm('Remove ' + SG.players[i] + ' and their scores?')) return;
   SG.players.splice(i, 1);
   SG.rounds.forEach(r => r.splice(i, 1));
-  if (!SG.players.length) SG.rounds = [];
+  if (SG.endRound) SG.endRound.splice(i, 1);
+  if (!SG.players.length) { SG.rounds = []; SG.endRound = null; }
   sgSave();
   renderScore();
 }
@@ -1026,6 +1050,43 @@ function sgUpdateTotals() {
 function newGame() {
   if (SG.rounds.length && !confirm('Start a new game? All round scores will be cleared.')) return;
   SG.rounds = [];
+  SG.endRound = null;
+  sgEndOpen = false;
+  sgSave();
+  renderScore();
+}
+
+// End of game: leftover rack tiles are subtracted from each player's score;
+// if one player went out (0 left), the standard rule adds everyone else's
+// leftovers to their score.
+let sgEndOpen = false;
+function endGame() {
+  sgEndOpen = true;
+  renderScore();
+  const first = document.getElementById('endRack0');
+  if (first) first.focus();
+}
+
+function applyEndGame() {
+  const rack = SG.players.map((_, i) => {
+    const v = parseInt(document.getElementById('endRack' + i).value, 10);
+    return isNaN(v) || v < 0 ? 0 : v;
+  });
+  const adj = rack.map(v => -v);
+  const wentOut = rack.filter(v => v === 0).length === 1 ? rack.indexOf(0) : -1;
+  const spare = rack.reduce((a, b) => a + b, 0);
+  if (wentOut >= 0 && spare > 0 &&
+      confirm(SG.players[wentOut] + ' went out. Add the other players\' leftover ' + spare + ' points to their score? (standard Scrabble rule)')) {
+    adj[wentOut] += spare;
+  }
+  SG.endRound = adj;
+  sgEndOpen = false;
+  sgSave();
+  renderScore();
+}
+
+function clearEndRound() {
+  SG.endRound = null;
   sgSave();
   renderScore();
 }
@@ -1044,7 +1105,7 @@ function renderScore() {
   const cards = SG.players.map((p, i) =>
     `<div class="sg-card ${played && totals[i] === max ? 'leader' : ''}" id="sgCard${i}">
       <button class="sg-remove" onclick="removePlayer(${i})" title="Remove player">&times;</button>
-      <div class="sg-name">${sgEsc(p)}</div>
+      <div class="sg-name">${SG.endRound && totals[i] === max ? '&#127942; ' : ''}${sgEsc(p)}</div>
       <div class="sg-total">${totals[i]}</div>
     </div>`).join('');
 
@@ -1056,18 +1117,42 @@ function renderScore() {
       `<td><input type="number" inputmode="numeric" value="${v === null ? '' : v}" oninput="sgInput(${ri},${ci},this.value)"></td>`).join('')}
     <td class="sg-del"><button onclick="removeRound(${ri})" title="Delete round">&times;</button></td></tr>`).join('');
 
+  const endRow = SG.endRound
+    ? `<tr><td class="sg-rd">End</td>${SG.endRound.map(v =>
+        `<td class="${v < 0 ? 'sg-end-neg' : 'sg-end-pos'}">${v > 0 ? '+' : ''}${v}</td>`).join('')}
+      <td class="sg-del"><button onclick="clearEndRound()" title="Undo end-game adjustment">&times;</button></td></tr>`
+    : '';
+
   const foot = `<tr><td class="sg-rd">Tot</td>${totals.map((t, i) =>
     `<td id="sgColTotal${i}">${t}</td>`).join('')}<td class="sg-del"></td></tr>`;
+
+  const endForm = sgEndOpen && !SG.endRound
+    ? `<div class="search-box" style="margin-top:14px">
+        <label>End of Game &mdash; points left in each rack</label>
+        ${SG.players.map((p, i) =>
+          `<div class="sg-endrow"><span>${sgEsc(p)}</span>
+            <input type="number" inputmode="numeric" min="0" id="endRack${i}" placeholder="0"></div>`).join('')}
+        <div class="sg-actions" style="margin-top:10px">
+          <button class="sg-btn" onclick="applyEndGame()">Apply</button>
+          <button class="sg-btn secondary" onclick="sgEndOpen=false;renderScore()">Cancel</button>
+        </div>
+      </div>`
+    : '';
+
+  const endBtn = played && !SG.endRound
+    ? '<button class="sg-btn" onclick="endGame()">End Game</button>' : '';
 
   area.innerHTML =
     `<div class="sg-board">${cards}</div>
     <div class="sg-table-wrap"><table class="sg-table">
-      <thead>${head}</thead><tbody id="sgRows">${rows}</tbody><tfoot>${foot}</tfoot>
+      <thead>${head}</thead><tbody id="sgRows">${rows}${endRow}</tbody><tfoot>${foot}</tfoot>
     </table></div>
     <div class="sg-actions">
-      <button class="sg-btn" onclick="addRound()">+ Add Round</button>
+      <button class="sg-btn" onclick="addRound()">+ Round</button>
+      ${endBtn}
       <button class="sg-btn secondary" onclick="newGame()">New Game</button>
-    </div>`;
+    </div>
+    ${endForm}`;
 }
 
 document.getElementById('playerInput').addEventListener('keyup', e => { if (e.key === 'Enter') addPlayer(); });
