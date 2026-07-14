@@ -246,6 +246,11 @@
     letter-spacing: 3px;
     color: var(--text);
   }
+  .word-card .word.long {
+    font-size: 13px;
+    letter-spacing: 1px;
+    word-break: break-all;
+  }
   .word-card .points {
     font-size: 11px;
     color: var(--muted);
@@ -518,16 +523,30 @@
   <!-- FIND PANEL -->
   <div id="panel-find" class="panel">
     <div class="search-box">
-      <label>Find Words by Pattern</label>
+      <label>Find Words</label>
+      <div class="dict-filter" style="justify-content:flex-start; margin-bottom:10px">
+        <button class="dict-btn active" id="modePattern" onclick="setFindMode('pattern')">Pattern</button>
+        <button class="dict-btn" id="modeAnagram" onclick="setFindMode('anagram')">Any Order</button>
+      </div>
       <div class="input-row">
-        <input type="text" id="findInput" placeholder="e.g. ?A or Z??" maxlength="3" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <input type="text" id="findInput" placeholder="e.g. Q?EEN" maxlength="15" autocomplete="off" autocapitalize="characters" spellcheck="false">
         <button onclick="findWords()">Find</button>
       </div>
-      <div class="pattern-help">
-        Use <code>?</code> for unknown letters.<br>
+      <div class="pattern-help" id="helpPattern">
+        Letters stay in position; <code>?</code> = unknown letter.<br>
         <code>?A</code> = 2-letter words ending in A<br>
         <code>Z??</code> = 3-letter words starting with Z<br>
-        <code>?O?</code> = 3-letter words with O in middle
+        <code>Q?EEN</code> = 5-letter words like QUEEN<br>
+        <code>??ZZ??</code> = 6-letter words with ZZ in the middle
+      </div>
+      <div class="pattern-help" id="helpAnagram" style="display:none">
+        Enter your letters in any order; <code>?</code> = blank tile.<br>
+        <code>AETRS</code> finds STARE, RATES, TEARS, ASTER&hellip;<br>
+        Shorter words made from your letters are included too.
+      </div>
+      <div class="dict-filter" id="sortRow" style="display:none; justify-content:flex-start; margin-top:10px">
+        <button class="dict-btn active" id="sortPoints" onclick="setAnagramSort('points')">Highest Points</button>
+        <button class="dict-btn" id="sortLength" onclick="setAnagramSort('length')">Most Letters</button>
       </div>
     </div>
     <div class="word-grid" id="gridFind" style="margin-top:14px"></div>
@@ -658,21 +677,24 @@ document.getElementById('checkInput').addEventListener('keyup', e => { if (e.key
 document.getElementById('findInput').addEventListener('keyup', e => { if (e.key === 'Enter') findWords(); });
 
 // Render word grid
-function renderGrid(words, containerId) {
+function renderGrid(words, containerId, sortFn, scoreFn) {
   const grid = document.getElementById(containerId);
   if (Object.keys(words).length === 0) {
     grid.innerHTML = '<div class="empty-state">No words match this filter.</div>';
     return;
   }
-  const sorted = Object.entries(words).sort((a,b) => a[0].localeCompare(b[0]));
+  const sc = scoreFn || score;
+  const sorted = Object.entries(words).sort(sortFn || ((a,b) => a[0].localeCompare(b[0])));
   grid.innerHTML = sorted.map(([w, dict]) => {
     const dots = dict === 'both'
       ? '<span class="dot us-dot"></span><span class="dot uk-dot"></span>'
-      : '<span class="dot uk-dot"></span>';
-    return `<div class="word-card" onclick="showPopup('${w}','${dict}')">
+      : dict === 'us'
+        ? '<span class="dot us-dot"></span>'
+        : '<span class="dot uk-dot"></span>';
+    return `<div class="word-card" onclick="showPopup('${w}','${dict}',${sc(w)})">
       <div class="dict-dots">${dots}</div>
-      <div class="word">${w}</div>
-      <div class="points">${score(w)} pts</div>
+      <div class="word ${w.length > 5 ? 'long' : ''}">${w}</div>
+      <div class="points">${sc(w)} pts</div>
     </div>`;
   }).join('');
 }
@@ -737,12 +759,17 @@ function applyFilter(prefix, len, wordsObj) {
 }
 
 // Popup
-function showPopup(word, dict) {
-  document.getElementById('popupWord').textContent = word;
-  document.getElementById('popupScore').textContent = score(word) + ' points';
+function showPopup(word, dict, pts) {
+  const pw = document.getElementById('popupWord');
+  pw.textContent = word;
+  pw.style.fontSize = word.length > 8 ? '24px' : '';
+  pw.style.letterSpacing = word.length > 8 ? '2px' : '';
+  document.getElementById('popupScore').textContent = (pts === undefined ? score(word) : pts) + ' points';
   let tags = '';
   if (dict === 'both') {
     tags = '<span class="badge both-badge">US (TWL)</span> <span class="badge both-badge">UK (SOWPODS)</span>';
+  } else if (dict === 'us') {
+    tags = '<span class="badge us">US (TWL) Only</span>';
   } else {
     tags = '<span class="badge uk">UK (SOWPODS) Only</span>';
   }
@@ -754,24 +781,108 @@ function closePopup(e) {
     document.getElementById('popup').classList.remove('show');
 }
 
-// Find words by pattern
+// Find words: 'pattern' = letters in position, 'anagram' = any order (rack search)
+let findMode = 'pattern';
+let anagramSort = 'points';
+function setFindMode(m) {
+  findMode = m;
+  document.getElementById('modePattern').classList.toggle('active', m === 'pattern');
+  document.getElementById('modeAnagram').classList.toggle('active', m === 'anagram');
+  document.getElementById('helpPattern').style.display = m === 'pattern' ? '' : 'none';
+  document.getElementById('helpAnagram').style.display = m === 'anagram' ? '' : 'none';
+  document.getElementById('sortRow').style.display = m === 'anagram' ? '' : 'none';
+  const inp = document.getElementById('findInput');
+  inp.placeholder = m === 'pattern' ? 'e.g. Q?EEN' : 'e.g. AETRS?';
+  if (inp.value.trim()) findWords();
+  else document.getElementById('gridFind').innerHTML = '';
+}
+function setAnagramSort(s) {
+  anagramSort = s;
+  document.getElementById('sortPoints').classList.toggle('active', s === 'points');
+  document.getElementById('sortLength').classList.toggle('active', s === 'length');
+  if (document.getElementById('findInput').value.trim()) findWords();
+}
+
 function findWords() {
-  const pattern = document.getElementById('findInput').value.trim().toUpperCase();
-  if (!pattern || pattern.length < 2 || pattern.length > 3) {
-    document.getElementById('gridFind').innerHTML = '<div class="empty-state">Enter a 2 or 3 letter pattern using ? for blanks.</div>';
+  const input = document.getElementById('findInput').value.trim().toUpperCase();
+  const grid = document.getElementById('gridFind');
+  if (!input || input.length < 2 || input.length > 15 || !/^[A-Z?]+$/.test(input)) {
+    grid.innerHTML = '<div class="empty-state">Enter 2&ndash;15 letters, using ? for blanks.</div>';
     return;
   }
-  const wordsObj = pattern.length === 2 ? WORDS2 : WORDS3;
   const matches = {};
-  for (const [w, dict] of Object.entries(wordsObj)) {
-    if (w.length !== pattern.length) continue;
-    let match = true;
-    for (let i = 0; i < pattern.length; i++) {
-      if (pattern[i] !== '?' && pattern[i] !== w[i]) { match = false; break; }
+  const d = getDicts();
+  const sources = [['both', d.b], ['us', d.us], ['uk', d.uk]];
+  let scoreFn = score;
+
+  if (findMode === 'pattern') {
+    const len = input.length;
+    const re = new RegExp('^' + input.replace(/\?/g, '.') + '$');
+    if (len <= 3) {
+      // Curated lists for short words
+      for (const [w, dict] of Object.entries(len === 2 ? WORDS2 : WORDS3)) {
+        if (re.test(w)) matches[w] = dict;
+      }
+    } else {
+      for (const [tag, set] of sources) {
+        for (const w of set) {
+          if (w.length === len && re.test(w)) matches[w] = tag;
+        }
+      }
     }
-    if (match) matches[w] = dict;
+  } else {
+    // Anagram: words formable from the entered letters (? = blank)
+    const counts = new Array(26).fill(0);
+    let blanks = 0;
+    for (const ch of input) {
+      if (ch === '?') blanks++; else counts[ch.charCodeAt(0) - 65]++;
+    }
+    const formable = w => {
+      const c = counts.slice();
+      let b = blanks;
+      for (let i = 0; i < w.length; i++) {
+        const k = w.charCodeAt(i) - 65;
+        if (c[k] > 0) c[k]--;
+        else if (b > 0) b--;
+        else return false;
+      }
+      return true;
+    };
+    for (const [tag, set] of sources) {
+      for (const w of set) {
+        if (w.length >= 2 && w.length <= input.length && formable(w)) matches[w] = tag;
+      }
+    }
+    // Playable score: letters your rack lacks must come from blanks, which score 0
+    scoreFn = w => {
+      let s = 0;
+      const c = counts.slice();
+      for (let i = 0; i < w.length; i++) {
+        const k = w.charCodeAt(i) - 65;
+        if (c[k] > 0) { c[k]--; s += PTS[w[i]] || 0; }
+      }
+      return s;
+    };
   }
-  renderGrid(matches, 'gridFind');
+
+  // Anagram results: points or length first (user's choice); pattern results: alphabetical
+  const sortFn = findMode !== 'anagram'
+    ? (a, b) => a[0].localeCompare(b[0])
+    : anagramSort === 'points'
+      ? (a, b) => scoreFn(b[0]) - scoreFn(a[0]) || b[0].length - a[0].length || a[0].localeCompare(b[0])
+      : (a, b) => b[0].length - a[0].length || scoreFn(b[0]) - scoreFn(a[0]) || a[0].localeCompare(b[0]);
+
+  const total = Object.keys(matches).length;
+  const LIMIT = 500;
+  if (total > LIMIT) {
+    const trimmed = {};
+    Object.entries(matches).sort(sortFn).slice(0, LIMIT).forEach(([k, v]) => trimmed[k] = v);
+    renderGrid(trimmed, 'gridFind', sortFn, scoreFn);
+    grid.insertAdjacentHTML('afterbegin',
+      `<div class="empty-state" style="grid-column:1/-1;padding:10px">Showing ${findMode === 'anagram' ? 'best' : 'first'} ${LIMIT} of ${total} matches.</div>`);
+    return;
+  }
+  renderGrid(matches, 'gridFind', sortFn, scoreFn);
 }
 
 
